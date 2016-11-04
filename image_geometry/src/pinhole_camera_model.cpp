@@ -1,6 +1,7 @@
 #include "image_geometry/pinhole_camera_model.h"
 #include <sensor_msgs/distortion_models.h>
 #include <boost/make_shared.hpp>
+#include <opencv2/cudawarping.hpp>
 
 namespace image_geometry {
 
@@ -288,19 +289,21 @@ void PinholeCameraModel::rectifyImage(const cv::Mat& raw, cv::Mat& rectified, in
 {
   assert( initialized() );
 
+  cv::cuda::GpuMat d_src, d_dst, d_xmap, d_ymap;
+
   switch (cache_->distortion_state) {
     case NONE:
       raw.copyTo(rectified);
       break;
     case CALIBRATED:
       initRectificationMaps();
-      if (raw.depth() == CV_32F || raw.depth() == CV_64F)
-      {
-        cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation, cv::BORDER_CONSTANT, std::numeric_limits<float>::quiet_NaN());
-      }
-      else {
-        cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation);
-      }
+
+      d_src.upload(raw);
+      d_xmap.upload(cache_->reduced_map1);
+      d_ymap.upload(cache_->reduced_map2);
+
+      cv::cuda::remap(d_src, d_dst, d_xmap, d_ymap, interpolation);
+      d_dst.download(rectified);
       break;
     default:
       assert(cache_->distortion_state == UNKNOWN);
@@ -442,10 +445,10 @@ void PinholeCameraModel::initRectificationMaps() const
         P_binned(1,3) *= scale_y;
       }
     }
-    
+
     // Note: m1type=CV_16SC2 to use fast fixed-point maps (see cv::remap)
     cv::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
-                                CV_16SC2, cache_->full_map1, cache_->full_map2);
+                                CV_32FC1, cache_->full_map1, cache_->full_map2);
     cache_->full_maps_dirty = false;
   }
 
