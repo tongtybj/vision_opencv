@@ -2,7 +2,25 @@ cmake_minimum_required(VERSION 2.8)
 project(image_geometry)
 
 find_package(catkin REQUIRED sensor_msgs)
-find_package(OpenCV 3.1 REQUIRED)
+
+set(ENABLE_CUDA OFF)
+
+if(ENABLE_CUDA)
+  add_definitions(-DGPU_EN)
+  #   TX1 : OpenCV 2.4(OpenCV4Tegra is based on OpenCV2.4)
+  #   Ubuntu 14/16: OpenCV 3.1
+  exec_program(uname ARGS -p OUTPUT_VARIABLE CMAKE_SYSTEM_NAME2)
+  if ( CMAKE_SYSTEM_NAME2 MATCHES "aarch64" ) # Jetson TX1
+    SET(OCV_VERSION "2.4")
+    add_definitions(-DTX1)
+  else() # Ubuntu Desktop
+    SET(OCV_VERSION "3.1")
+    add_definitions(-Dx86)
+  endif()
+  find_package(OpenCV ${OCV_VERSION} REQUIRED)
+else()
+  find_package(OpenCV REQUIRED)
+endif()
 
 catkin_package(CATKIN_DEPENDS sensor_msgs
                DEPENDS OpenCV

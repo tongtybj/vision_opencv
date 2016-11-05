@@ -1,7 +1,16 @@
 #include "image_geometry/pinhole_camera_model.h"
 #include <sensor_msgs/distortion_models.h>
 #include <boost/make_shared.hpp>
+
+#if defined(GPU_EN)
+#if defined(TX1)
+#include <opencv2/gpu/gpu.hpp>
+#endif
+
+#if defined(x86)
 #include <opencv2/cudawarping.hpp>
+#endif
+#endif
 
 namespace image_geometry {
 
@@ -289,7 +298,13 @@ void PinholeCameraModel::rectifyImage(const cv::Mat& raw, cv::Mat& rectified, in
 {
   assert( initialized() );
 
+#if defined(x86)
   cv::cuda::GpuMat d_src, d_dst, d_xmap, d_ymap;
+#endif
+
+#if defined(TX1)
+  cv::gpu::GpuMat d_src, d_dst, d_xmap, d_ymap;
+#endif
 
   switch (cache_->distortion_state) {
     case NONE:
@@ -298,12 +313,29 @@ void PinholeCameraModel::rectifyImage(const cv::Mat& raw, cv::Mat& rectified, in
     case CALIBRATED:
       initRectificationMaps();
 
+#if defined(GPU_EN)
       d_src.upload(raw);
       d_xmap.upload(cache_->reduced_map1);
       d_ymap.upload(cache_->reduced_map2);
 
+#if defined(TX1)
+      cv::gpu::remap(d_src, d_dst, d_xmap, d_ymap, interpolation);
+#endif
+#if defined(x86)
       cv::cuda::remap(d_src, d_dst, d_xmap, d_ymap, interpolation);
+#endif
       d_dst.download(rectified);
+#else
+      if (raw.depth() == CV_32F || raw.depth() == CV_64F)
+        {
+          cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation, cv::BORDER_CONSTANT, std::numeric_limits<float>::quiet_NaN());
+        }
+      else {
+        cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation);
+      }
+
+#endif
+
       break;
     default:
       assert(cache_->distortion_state == UNKNOWN);
@@ -447,8 +479,13 @@ void PinholeCameraModel::initRectificationMaps() const
     }
 
     // Note: m1type=CV_16SC2 to use fast fixed-point maps (see cv::remap)
+#if defined(GPU_EN)
     cv::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
                                 CV_32FC1, cache_->full_map1, cache_->full_map2);
+#else
+    cv::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
+                                CV_16SC2, cache_->full_map1, cache_->full_map2);
+#endif
     cache_->full_maps_dirty = false;
   }
 
